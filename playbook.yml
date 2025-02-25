@@ -1,0 +1,158 @@
+- name: Create Users & Groups
+  hosts: my-pc
+  gather_facts: false
+  vars:
+    admin_group: "admins"
+    default_user_password: "MonMotDePasseSuperSecret"
+  become: true
+  tasks:
+    - name: Create Users & Groups (Create group)
+      group:
+        name: "{{ admin_group }}"
+        state: present
+
+    - name: Create Users & Groups ( Create Users Task)
+      user:
+        name: "{{ item }}"
+        state: present
+        password: "{{ default_user_password | password_hash('sha512', 'A512') }}"
+        shell: /bin/bash
+        group: "{{ admin_group }}"
+      loop:
+        - roberto
+        - yannick
+        - romial
+
+
+# Now we a going to install docker engine and ssh
+    # - name: Add Docker GPG apt Key
+    #   apt_key:
+    #     url: https://download.docker.com/linux/ubuntu/gpg
+    #     state: present
+
+    # - name: Add Docker Repository
+    #   apt_repository:
+    #     repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu focal stable"
+    #     state: present
+
+
+    # - name: Update apt and install docker-ce
+    #   apt:
+    #     name: docker-ce
+    #     state: latest
+    #     update_cache: true
+
+    # - name: Install Docker Module for Python
+    #   pip:
+    #     name: docker
+
+    #  Installation de GnuPG si absent (nécessaire pour apt-key)
+
+    - name: Clean APT cache (fix possible issues)
+      command: apt-get clean
+
+    - name: Remove APT lock files (if any)
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/dpkg/lock
+        - /var/lib/dpkg/lock-frontend
+        - /var/lib/apt/lists/lock
+
+    - name: Force update APT cache
+      command: apt-get update
+      register: apt_update_output
+      failed_when: "'Failed to fetch' in apt_update_output.stderr"
+      changed_when: false
+
+
+    - name: Install required dependencies
+      apt:
+        name: gnupg
+        state: present
+        update_cache: true
+
+    #  Ajout de la clé GPG de Docker
+    # - name: Add Docker GPG apt Key
+    #   shell: |
+    #     mkdir -p /etc/apt/keyrings
+    #     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | tee /etc/apt/keyrings/docker.asc
+    #   args:
+    #     creates: /etc/apt/keyrings/docker.asc
+
+    # # Ajout du dépôt officiel Docker
+    # - name: Add Docker Repository
+    #   apt_repository:
+    #     repo: "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu focal stable"
+    #     state: present
+    #     filename: docker
+
+    #  Mise à jour du cache APT
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    #  Installation de Docker Engine
+    - name: Install Docker Engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: latest
+
+    #  Installation du module Docker pour Python
+    - name: Install Docker Module for Python
+      pip:
+        name: docker
+
+# now we are going to install openssh server
+    
+    - name: install openssh
+      apt:
+        name: openssh-server
+        state: latest
+        update_cache: true
+
+
+# get network interfaces 
+    - name: Get network interfaces
+      ansible.builtin.command:
+        cmd: |
+          ip route show | awk '{print $3 "  :  "  $1}'
+      register: interfaces_output
+
+    - name: Show interfaces
+      debug:
+        msg: "{{ interfaces_output.stdout }}"
+
+
+
+# ccopy dockerconfig file to change the listened interface 
+    - name: docker-service file
+      ansible.builtin.copy:
+        src: ./docker.service
+        dest: /lib/systemd/system/docker.service
+
+    - name: reload systemd daemon
+      ansible.builtin.command:
+        cmd: sudo systemctl daemon-reload
+
+    - name: restart docker service
+      ansible.builtin.command:
+        cmd: sudo systemctl restart docker
+
+
+#  Rgister the display infos of the connection
+
+    - name: register the curl output command in a variable 
+      ansible.builtin.command:
+        cmd: curl http://127.0.0.1:2375/info
+      register: curl_command_output
+
+    - name: Show output
+      debug:
+        msg: "{{ curl_command_output.stdout }}"
+
+
